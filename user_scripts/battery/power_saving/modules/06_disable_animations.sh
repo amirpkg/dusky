@@ -8,7 +8,7 @@
 set -euo pipefail
 
 # --- Configuration ---
-readonly SOURCE_FILE="${HOME}/.config/hypr/source/animations/disable"
+readonly SOURCE_FILE="${HOME}/.config/hypr/source/animations/disable.conf"
 readonly TARGET_FILE="${HOME}/.config/hypr/source/animations/active/active.conf"
 
 # --- Colors ---
