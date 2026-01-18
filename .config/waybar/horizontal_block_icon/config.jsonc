@@ -96,6 +96,7 @@
         "class<discord>": "",
         "class<org.telegram.desktop>": "",
         "class<com.obsproject.Studio>": "󰑋",
+        "class<obsidian>": ""
     }
   },
   "custom/updates": {
