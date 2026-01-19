@@ -3,9 +3,9 @@
 	"reload_style_on_change": true,
     "layer": "top",
     "position": "top",
-    "margin-top": 10,
-    "margin-left": 15,
-    "margin-right": 15,
+    "margin-top": 3,
+    "margin-left": 10,
+    "margin-right": 10,
     "spacing": 0,
     "modules-left": [
         "group/power",
@@ -40,30 +40,30 @@
             "custom/shutdown"
         ]
     },
-    "custom/arch": { 
+    "custom/arch": {
         "format": "󰣇",
         "tooltip-format": "Power Menu",
         "on-click": "uwsm-app -- ~/user_scripts/wlogout/wlogout_scale.sh"
     },
-    "custom/lock": { 
-        "format": "󰌾", 
+    "custom/lock": {
+        "format": "󰌾",
         "tooltip-format": "Lock Screen",
         "on-click": "$HOME/user_scripts/hyprlock/lock.sh"
     },
-    "custom/logout": { 
-        "format": "󰍃", 
+    "custom/logout": {
+        "format": "󰍃",
         "tooltip-format": "Logout",
-        "on-click": "uwsm stop" 
+        "on-click": "uwsm stop"
     },
-    "custom/reboot": { 
-        "format": "󰜉", 
+    "custom/reboot": {
+        "format": "󰜉",
         "tooltip-format": "Reboot",
-        "on-click": "systemctl reboot" 
+        "on-click": "systemctl reboot"
     },
-    "custom/shutdown": { 
-        "format": "󰐥", 
+    "custom/shutdown": {
+        "format": "󰐥",
         "tooltip-format": "Shutdown",
-        "on-click": "systemctl poweroff" 
+        "on-click": "systemctl poweroff"
     },
 
     // === GROUP: TEMPS (The Sensors) ===
@@ -81,7 +81,7 @@
         ]
     },
     "temperature#cpu": {
-        "hwmon-path": "/sys/class/thermal/thermal_zone6/type:x86_pkg_temp", 
+        "hwmon-path": "/sys/class/thermal/thermal_zone6/type:x86_pkg_temp",
         "format": " {temperatureC}°C",
         "tooltip-format": "CPU: {temperatureC}°C"
     },

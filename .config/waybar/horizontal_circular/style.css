@@ -47,7 +47,7 @@ tooltip {
 
 tooltip label {
     color: @on_surface;
-    padding: 8px 12px;
+    padding: 8px 9px;
     font-size: 13px;
 }
 
@@ -70,7 +70,7 @@ tooltip label {
     background-color: @primary-mild;
     color: transparent;
 
-    font-size: 0px; 
+    font-size: 0px;
     min-width: 25px;
     min-height: 25px;
 
@@ -123,7 +123,7 @@ tooltip label {
 #custom-gpu,
 #backlight {
     background-color: @surface_container;
-    border-radius: 20px;
+    border-radius: 26px;
     border: 2px solid @primary-mild;
     padding: 5px 14px;
     margin: 0 6px;
@@ -144,7 +144,7 @@ tooltip label {
     color: @primary;
     font-size: 17px;
     margin: 0 6px;
-    padding: 5px 15px 5px 11px;
+    padding: 5px 14px 5px 11px;
 }
 
 #custom-arch:hover {
@@ -256,7 +256,7 @@ tooltip label {
 #network { 
 	font-size: 17px;
 	color: @primary_container; 
-	padding: 10px 14px 8px 9px;
+  padding: 6px 14px 4px 9px;
 }
 	
 #network:hover {
