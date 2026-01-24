@@ -1,6 +1,7 @@
 .config/alacritty/alacritty.toml
 .config/btop/btop.conf
 .config/cava/config
+.config/dusky/
 .config/fastfetch/
 .config/firefox_extention_export_data_backup/
 .config/fontconfig/
@@ -27,7 +28,6 @@
 .config/swappy/
 .config/uwsm/
 .config/waybar/horizontal_block/
-.config/waybar/horizontal_block_icon/
 .config/waybar/horizontal_circular/
 .config/waybar/horizontal_minimal/
 .config/waybar/horizontal_nerdy_modern/
