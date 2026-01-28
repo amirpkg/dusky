@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Script Name: setup_hypr_overlay.sh
-# Description: Initializes the 'edit_here' user configuration overlay for Hyprland.
+# Description: Initializes or validates the 'edit_here' user configuration 
+#              overlay for Hyprland. Ensures all template files exist.
 #              Designed for Arch Linux/Hyprland/UWSM environments.
 # ==============================================================================
 
@@ -58,28 +59,40 @@ if [[ ! -f ${MAIN_CONF} ]]; then
 fi
 
 # ------------------------------------------------------------------------------
-# 4. Main Logic: Create Overlay
+# 4. Main Logic: Create or Verify Overlay
 # ------------------------------------------------------------------------------
-log_info "Initializing Hyprland user configuration overlay..."
+log_info "Initializing/Verifying Hyprland user configuration overlay..."
 
-if [[ -d ${EDIT_DIR} ]]; then
-    log_warn "Directory '${EDIT_DIR}' already exists."
-    log_warn "Skipping initialization to protect existing custom configurations."
-else
-    # 1. Create Directory Structure
-    log_info "Creating directory: ${EDIT_DIR}"
+# 1. Ensure Directory Structure (Idempotent: mkdir -p won't fail if it exists)
+if [[ ! -d "${EDIT_SOURCE_DIR}" ]]; then
+    log_info "Creating directory: ${EDIT_SOURCE_DIR}"
     mkdir -p -- "${EDIT_SOURCE_DIR}"
+else
+    log_info "Directory exists: ${EDIT_SOURCE_DIR} (checking contents...)"
+fi
 
-    # 2. Create Empty Template Files
-    log_info "Creating empty template files in '${EDIT_SOURCE_DIR}'..."
-    
-    # Updated list of files to create:
-    for file in monitors.conf keybinds.conf appearance.conf autostart.conf \
-                plugins.conf window_rules.conf environment_variables.conf; do
+# 2. Define list of required configuration files
+readonly CONFIG_FILES=(
+    "monitors.conf"
+    "keybinds.conf"
+    "appearance.conf"
+    "autostart.conf"
+    "plugins.conf"
+    "window_rules.conf"
+    "environment_variables.conf"
+)
+
+# 3. Iterate and Create Missing Files
+for file in "${CONFIG_FILES[@]}"; do
+    target_file="${EDIT_SOURCE_DIR}/${file}"
+
+    if [[ -f "${target_file}" ]]; then
+        # File exists, skip it to protect user data
+        log_info "  - Exists: ${file}"
+    else
+        # File missing, create it
+        log_warn "  - Missing: ${file} -> Creating template..."
         
-        target_file="${EDIT_SOURCE_DIR}/${file}"
-        
-        # Create the file with a specific header description
         cat > "${target_file}" <<EOF
 # ==============================================================================
 # USER CONFIGURATION: ${file}
@@ -89,11 +102,16 @@ else
 # ==============================================================================
 
 EOF
-        log_success "Created template: ${file}"
-    done
+        log_success "    Created template: ${file}"
+    fi
+done
 
-    # 3. Generate the user's overlay config file (The loader)
-    log_info "Generating '${NEW_CONF}'..."
+# 4. Generate the user's overlay config file (The loader)
+# Check if the loader exists
+if [[ -f "${NEW_CONF}" ]]; then
+    log_info "Loader file exists: ${NEW_CONF}"
+else
+    log_warn "Loader file missing: ${NEW_CONF} -> Creating..."
     cat > "${NEW_CONF}" <<'EOF'
 # ==============================================================================
 # USER CONFIGURATION OVERLAY
@@ -116,7 +134,7 @@ fi
 # ------------------------------------------------------------------------------
 # 5. Modify Main Configuration
 # ------------------------------------------------------------------------------
-log_info "Updating main configuration at '${MAIN_CONF}'..."
+log_info "Verifying main configuration at '${MAIN_CONF}'..."
 
 if grep -Fq -- "source = ${INCLUDE_PATH}" "${MAIN_CONF}"; then
     log_success "Main config already sources the overlay. No changes needed."
@@ -130,6 +148,6 @@ fi
 # 6. Completion
 # ------------------------------------------------------------------------------
 printf '\n'
-log_success "Setup complete!"
-log_info "You can now edit your custom configs in: ${EDIT_DIR}"
+log_success "Setup/Verification complete!"
+log_info "Your custom configs are located in: ${EDIT_DIR}"
 log_info "To apply changes, restart Hyprland or run 'hyprctl reload'."
