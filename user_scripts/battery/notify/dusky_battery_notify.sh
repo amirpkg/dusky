@@ -15,7 +15,7 @@ export LC_NUMERIC=C
 
 readonly CONFIG_FILE="${HOME}/user_scripts/battery/notify/battery_notify.sh"
 readonly SERVICE_NAME="battery_notify.service"
-readonly APP_TITLE="Dusky Battery"
+readonly APP_TITLE="Dusky Battery Notif"
 readonly APP_VERSION="v1.1.2" # Bumped version for Logic Engine
 
 # Dimensions
