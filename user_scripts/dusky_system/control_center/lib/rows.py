@@ -211,6 +211,7 @@ class RowProperties(TypedDict, total=False):
     options: list[str]  # Added for SelectionRow
     placeholder: str    # Added for EntryRow logic
     badge_file: str     # ADDED: Path to file containing badge count
+    buttons: list[dict[str, Any]] # ADDED: Support for multiple linked buttons
 
 
 class RowContext(TypedDict, total=False):
@@ -732,23 +733,52 @@ class ButtonRow(BaseActionRow):
     ) -> None:
         super().__init__(properties, on_press, context)
 
-        self.btn = Gtk.Button(label=str(properties.get("button_text", "Run")))
-        self.btn.set_valign(Gtk.Align.CENTER)
-        self.btn.add_css_class("run-btn")
+        # Check for multiple buttons (Linked Group)
+        multi_buttons = properties.get("buttons")
         
-        self.base_style = str(properties.get("style", "default")).lower()
-        self._apply_base_style(self.base_style)
-        
-        # Dynamic State (Text & Color)
-        self.text_file = properties.get("button_text_file")
-        if self.text_file:
-            self.text_map = properties.get("button_text_map", {})
-            self.style_map = properties.get("style_map", {})
-            self._start_dynamic_poll()
+        if multi_buttons and isinstance(multi_buttons, list):
+            box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+            box.add_css_class("linked")
+            box.set_valign(Gtk.Align.CENTER)
+            
+            for btn_cfg in multi_buttons:
+                b = Gtk.Button()
+                # Use Icon if provided, otherwise fallback to Text
+                if icon_name := btn_cfg.get("icon"):
+                    b.set_child(Gtk.Image.new_from_icon_name(icon_name))
+                    b.set_tooltip_text(str(btn_cfg.get("button_text", "Action")))
+                else:
+                    b.set_label(str(btn_cfg.get("button_text", "Action")))
+                
+                b.connect("clicked", self._on_multi_clicked, btn_cfg)
+                
+                # Apply style if provided
+                if s := btn_cfg.get("style"):
+                    if s == "suggested": b.add_css_class("suggested-action")
+                    elif s == "destructive": b.add_css_class("destructive-action")
+                
+                box.append(b)
+            
+            self.add_suffix(box)
+        else:
+            # Standard single button logic
+            self.btn = Gtk.Button(label=str(properties.get("button_text", "Run")))
+            self.btn.set_valign(Gtk.Align.CENTER)
+            self.btn.add_css_class("run-btn")
+            
+            self.base_style = str(properties.get("style", "default")).lower()
+            self._apply_base_style(self.base_style)
+            
+            # Dynamic State (Text & Color) - Watches a file for status mapping
+            self.text_file = properties.get("button_text_file")
+            if self.text_file:
+                self.text_map = properties.get("button_text_map", {})
+                self.style_map = properties.get("style_map", {})
+                self._start_dynamic_poll()
 
-        self.btn.connect("clicked", self._on_button_clicked)
-        self.add_suffix(self.btn)
-        self.set_activatable_widget(self.btn)
+            self.btn.connect("clicked", self._on_button_clicked)
+            self.add_suffix(self.btn)
+            self.set_activatable_widget(self.btn)
 
     def _apply_base_style(self, style: str) -> None:
         for s in ["suggested-action", "destructive-action", "default-action"]:
@@ -769,38 +799,41 @@ class ButtonRow(BaseActionRow):
             path = Path(self.text_file).expanduser()
             if not path.exists(): return True
             val = path.read_text().strip()
-            
             # Update Label
             new_label = self.text_map.get(val, self.text_map.get("default", self.btn.get_label()))
-            if self.btn.get_label() != new_label:
-                self.btn.set_label(new_label)
-            
+            if self.btn.get_label() != new_label: self.btn.set_label(new_label)
             # Update Style
             new_style = self.style_map.get(val, self.style_map.get("default", self.base_style))
             self._apply_base_style(new_style)
-                
         except Exception: pass
         return True
 
     def _on_button_clicked(self, _button: Gtk.Button) -> None:
-        """Handle button click: execute command or redirect."""
-        if not isinstance(self.on_action, dict):
-            return
+        """Handle standard button click."""
+        self._trigger_action(self.on_action)
 
-        match self.on_action.get("type"):
-            case "exec":
-                cmd = self.on_action.get("command", "")
-                if isinstance(cmd, str) and cmd.strip():
-                    title = str(self.properties.get("title", "Command"))
-                    term = bool(self.on_action.get("terminal", False))
-                    success = utility.execute_command(cmd.strip(), title, term)
-                    msg = f"{'▶ Launched' if success else '✖ Failed'}: {title}"
-                    utility.toast(
-                        self.toast_overlay, msg, 2 if success else 4
-                    )
-            case "redirect":
-                if pid := self.on_action.get("page"):
-                    _perform_redirect(str(pid), self.config, self.sidebar)
+    def _on_multi_clicked(self, _b: Gtk.Button, cfg: dict[str, Any]) -> None:
+        """Handle linked button click."""
+        if act := cfg.get("on_press"):
+            self._trigger_action(act)
+
+    def _trigger_action(self, act: Any) -> None:
+        """Execute action from config dict."""
+        if not isinstance(act, dict): return
+        t = act.get("type")
+        if t == "exec":
+            cmd = act.get("command", "")
+            if isinstance(cmd, str) and cmd.strip():
+                title = str(self.properties.get("title", "Command"))
+                term = bool(act.get("terminal", False))
+                success = utility.execute_command(cmd.strip(), title, term)
+                msg = f"{'▶ Launched' if success else '✖ Failed'}: {title}"
+                utility.toast(
+                    self.toast_overlay, msg, 2 if success else 4
+                )
+        elif t == "redirect":
+            if pid := act.get("page"):
+                _perform_redirect(str(pid), self.config, self.sidebar)
 
 
 class ToggleRow(StateMonitorMixin, BaseActionRow):

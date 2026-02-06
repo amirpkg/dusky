@@ -614,6 +614,20 @@ pages:
         command: brightnessctl set {value}%
     - type: button
       properties:
+        title: Screen Rotation
+        description: Rotates the display
+        icon: object-rotate-right-symbolic
+        buttons:
+          - icon: object-rotate-right-symbolic
+            on_press:
+              type: exec
+              command: $HOME/user_scripts/hypr/screen_rotate.sh -90
+          - icon: object-rotate-left-symbolic
+            on_press:
+              type: exec
+              command: $HOME/user_scripts/hypr/screen_rotate.sh +90
+    - type: button
+      properties:
         title: Night Light
         description: Blue light filter slider
         icon: weather-clear-night-symbolic
@@ -638,26 +652,6 @@ pages:
         type: exec
         command: kitty --class dusky_monitor.sh --hold
           sh -c "$HOME/user_scripts/hypr/dusky_monitor.sh"
-        terminal: false
-    - type: button
-      properties:
-        title: Rotate Clockwise
-        description: Reloading hyprland restores defualt screen layout
-        icon: object-rotate-right-symbolic
-        button_text: "Rotate"
-      on_press:
-        type: exec
-        command: $HOME/user_scripts/hypr/screen_rotate.sh -90
-        terminal: false
-    - type: button
-      properties:
-        title: Rotate Counter Clockwise
-        description: Reloading hyprland restores defualt screen layout
-        icon: object-rotate-left-symbolic
-        button_text: "Rotate"
-      on_press:
-        type: exec
-        command: $HOME/user_scripts/hypr/screen_rotate.sh +90
         terminal: false
 
 - id: audio
@@ -688,7 +682,7 @@ pages:
         icon: media-record-symbolic
       on_press:
         type: exec
-        command: $HOME/user_scripts/music/recognition.sh
+        command: $HOME/user_scripts/music/music_recognition.sh
         terminal: false
     - type: toggle_card
       properties:
