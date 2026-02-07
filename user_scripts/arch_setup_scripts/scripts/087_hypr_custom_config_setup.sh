@@ -443,15 +443,6 @@ gestures {
     # TUI: Toggle [true/false] - "Swipe Forever" (Don't clamp at neighbors)
     workspace_swipe_forever = false
 }
-
-# -------------------------------------------------------------------------------------------------
-# 7. PER-DEVICE SETTINGS
-# -------------------------------------------------------------------------------------------------
-device {
-    name = epic-mouse-v1
-    sensitivity = 0
-}
-
 EOF
             ;;
         *)
