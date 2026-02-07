@@ -941,6 +941,18 @@ pages:
         type: exec
         command: kitty --class mouse_button_reverse.sh --hold sh -c $HOME/user_scripts/desktop_apps/clipboard_persistance.sh
         terminal: false
+    - type: selection
+      properties:
+        title: Clipboard Style
+        icon: edit-paste-symbolic
+        options:
+        - Terminal
+        - Rofi
+        value_command: "grep -q 'True' ~/.config/dusky/settings/clipboard_state 2>/dev/null && echo 'Terminal' || echo 'Rofi'"
+        interval: 5
+      on_change:
+        type: exec
+        command: "$HOME/user_scripts/desktop_apps/switch_clipboard.sh --$(echo '{value}' | tr '[:upper:]' '[:lower:]')"
   - type: section
     properties:
       title: Status Bar & Notifications
