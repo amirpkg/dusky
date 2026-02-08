@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # -----------------------------------------------------------------------------
-# Dusky TUI Engine - Master Template v2.8.2 (Refined)
+# Dusky TUI Engine - Master Template v2.9.0 (Architecture Fixes)
 # -----------------------------------------------------------------------------
 # Target: Arch Linux / Hyprland / UWSM / Wayland
 # Description: High-performance, robust TUI for config modification.
@@ -15,57 +15,22 @@
 #   - Mouse Support (SGR 1006) with Scroll Wheel
 #   - Page Up/Down, Home/End Navigation
 #   - Visual "Unset" Detection for Debugging
-#   - NEW: Type Safety Validation at Startup
-#   - NEW: Post-Write Hook for Service Reloads
+#   - Post-Write Hook for Service Reloads
 #   - FIXED: Mouse Regex Crash (v2.6.1)
 #   - CRITICAL FIX: Navigation Exit Trap (v2.6.2)
 #   - REFACTOR (v2.7.0): Split Grep/Sed escaping, fixed Navigate End trap.
 #   - REFACTOR (v2.8.0): Consolidated write logic, Fixed Nameref Aliasing.
 #   - HOTFIX (v2.8.1): Reverted mouse detection glob to fix click regression.
 #   - FIX (v2.8.2): Fixed Duplicate Key Trap, Dependency crash, Mouse compat.
-# -----------------------------------------------------------------------------
-# KNOWN EDGE CASES & FIXES:
-#
-# 1. "Locale Bomb" - Non-US locales make awk output "0,5" instead of "0.5"
-#    FIX: export LC_NUMERIC=C at script start
-#
-# 2. "Nested Block Range Trap" - sed range /block/,/}/ stops at ANY }, breaking
-#    nested configs like: decoration { blur { ... } shadow_color = x }
-#    FIX: Count braces to find exact block boundaries
-#
-# 3. "First Block Trap" (NEW) - Config files can have MULTIPLE blocks with the
-#    same name (e.g., multiple `input {}` blocks for organization). The old
-#    code used `head -n1` to get only the first block, ignoring keys in later
-#    blocks with the same name.
-#    FIX: Iterate through ALL block instances and find the one containing the key
-#
-# 4. "Hyphen Pattern Trap" - Keys like `tap-to-click` need hyphen escaping in
-#    sed patterns, otherwise `-` can be misinterpreted in character classes.
-#    FIX: Escape hyphens in escape_sed_pattern()
-#    UPDATE v2.7.0: In standard BRE, hyphens are only special inside brackets [].
-#    Escaping them globally (\-) is undefined behavior. Removed hyphen escaping
-#    to comply with POSIX standards, as we escape the brackets themselves.
-#
-# 5. "Silent Failure Trap" - If a key isn't found, the old code silently did
-#    nothing, making debugging difficult.
-#    FIX: Return status from write functions, show "⚠ UNSET" in UI
-#
-# 6. "Regex Redirection Crash" (NEW) - Bash interprets `<` in [[ ... ]] regex
-#    as file redirection if not carefully handled, causing crashes.
-#    FIX: Store regex in a variable before comparison.
-#
-# 7. "The False Trap" (NEW) - Arithmetic checks like (( A > B )) return exit
-#    code 1 if false. If this is the last line of a function, `set -e` kills
-#    the script.
-#    FIX: Explicitly `return 0` at the end of navigation functions.
+#   - ARCHITECTURE FIX (v2.9.0): Composite Keys (allow same label in multiple tabs).
+#   - ROBUSTNESS (v2.9.0): Explicit stty blocking (prevents CPU spin).
+#   - CLEANUP (v2.9.0): POSIX-safe arithmetic (removed `|| :` hacks).
 # -----------------------------------------------------------------------------
 
 set -euo pipefail
 
 # CRITICAL FIX: The "Locale Bomb"
 # Force standard C locale for numeric operations.
-# This prevents awk from outputting commas (0,5) in non-US locales,
-# which would corrupt the config file.
 export LC_NUMERIC=C
 
 # =============================================================================
@@ -74,7 +39,7 @@ export LC_NUMERIC=C
 
 readonly CONFIG_FILE="${HOME}/.config/hypr/change_me.conf"
 readonly APP_TITLE="Dusky Template"
-readonly APP_VERSION="v2.8.2"
+readonly APP_VERSION="v2.9.0"
 
 # Dimensions & Layout
 declare -ri MAX_DISPLAY_ROWS=14      # Rows of items to show before scrolling
@@ -92,8 +57,6 @@ readonly -a TABS=("General" "Input" "Display" "Misc")
 #   - key:   The config key name (e.g., "sensitivity", "tap-to-click")
 #   - type:  bool, int, float, or cycle
 #   - block: The block name containing this key (e.g., "input", "touchpad")
-#            NOTE: If your config has MULTIPLE blocks with the same name,
-#            the engine will search ALL of them to find the key.
 #   - min:   For int/float: minimum value. For cycle: comma-separated options
 #   - max:   For int/float: maximum value. For cycle: unused
 #   - step:  For int/float: increment step. For cycle: unused
@@ -110,13 +73,10 @@ register_items() {
 # -----------------------------------------------------------------------------
 # Post-Write Hook
 # This function is called IMMEDIATELY after a value is successfully written.
-# Use this to reload services (Waybar, Dunst, etc.) or trigger system updates.
 # -----------------------------------------------------------------------------
 post_write_action() {
     # Example: Reload Waybar if it's running
     # pgrep -x waybar >/dev/null && killall -SIGUSR2 waybar
-    
-    # Example: Hyprland usually hot-reloads, but you can force it here if needed
     : # Do nothing by default
 }
 
@@ -152,7 +112,7 @@ readonly MOUSE_OFF=$'\033[?1000l\033[?1002l\033[?1006l'
 # Timeout for reading escape sequences (in seconds)
 readonly ESC_READ_TIMEOUT=0.02
 
-# Internal marker for unset values (uses Unicode to avoid collision with real values)
+# Internal marker for unset values
 readonly UNSET_MARKER='«unset»'
 
 # --- State Management ---
@@ -169,7 +129,7 @@ declare -A VALUE_CACHE=()
 declare -A CONFIG_CACHE=()
 declare -A DEFAULTS=()
 
-# Provisioned Tab Containers (0-9) to avoid sparse array errors
+# Provisioned Tab Containers
 # shellcheck disable=SC2034
 declare -a TAB_ITEMS_0=() TAB_ITEMS_1=() TAB_ITEMS_2=() TAB_ITEMS_3=() TAB_ITEMS_4=()
 # shellcheck disable=SC2034
@@ -182,14 +142,13 @@ log_err() {
 }
 
 cleanup() {
-    # Restore terminal state (Mouse, Cursor, Colors)
+    # Restore terminal state
     printf '%s%s%s' "$MOUSE_OFF" "$CURSOR_SHOW" "$C_RESET"
     
     # Robustly restore original stty settings
     if [[ -n "${ORIGINAL_STTY:-}" ]]; then
         stty "$ORIGINAL_STTY" 2>/dev/null || :
     fi
-    
     printf '\n'
 }
 
@@ -199,52 +158,27 @@ trap 'exit 143' TERM
 
 # --- Regex & Escaping ---
 
-# Escape special characters for sed REPLACEMENT string
-# Used when inserting values into the file.
 escape_sed_replacement() {
     local _esc_input=$1
-    local -n _esc_out_ref=$2 # Use unique name to avoid aliasing collision
+    local -n _esc_out_ref=$2
     _esc_input=${_esc_input//\\/\\\\}
-    _esc_input=${_esc_input//|/\\|}      # Escape delimiter
-    _esc_input=${_esc_input//&/\\&}      # Escape backreference
-    _esc_input=${_esc_input//$'\n'/\\n}  # Escape newlines
+    _esc_input=${_esc_input//|/\\|}
+    _esc_input=${_esc_input//&/\\&}
+    _esc_input=${_esc_input//$'\n'/\\n}
     _esc_out_ref=$_esc_input
 }
 
-# Escape special characters for sed PATTERN (Basic Regex with | delimiter)
-# Used for the sed 's///' command.
 escape_sed_pattern() {
     local _esc_input=$1
     local -n _esc_out_ref=$2
-    # Escape BRE metacharacters: \ . * [ ^ $ AND delimiter |
     _esc_input=${_esc_input//\\/\\\\}
-    _esc_input=${_esc_input//|/\\|}      # CRITICAL: Escape delimiter used in sed command
-    _esc_input=${_esc_input//./\\.}
-    _esc_input=${_esc_input//\*/\\*}
-    _esc_input=${_esc_input//\[/\\[}
-    _esc_input=${_esc_input//\]/\\]}     # FIX v2.7.0: Escape closing bracket for safety
-    _esc_input=${_esc_input//^/\\^}
-    _esc_input=${_esc_input//\$/\\\$}
-    # FIX v2.7.0: Removed hyphen escaping.
-    # In BRE, hyphen is literal unless inside []. Since we escape [,
-    # we are never inside a class, so hyphen is always literal.
-    _esc_out_ref=$_esc_input
-}
-
-# NEW v2.7.0: Escape special characters for GREP PATTERN (Standard BRE)
-# Used when finding lines with grep. Grep does NOT use '|' as a delimiter,
-# so escaping it as '\|' (alternation) is incorrect.
-escape_grep_pattern() {
-    local _esc_input=$1
-    local -n _esc_out_ref=$2
-    _esc_input=${_esc_input//\\/\\\\}
+    _esc_input=${_esc_input//|/\\|}
     _esc_input=${_esc_input//./\\.}
     _esc_input=${_esc_input//\*/\\*}
     _esc_input=${_esc_input//\[/\\[}
     _esc_input=${_esc_input//\]/\\]}
     _esc_input=${_esc_input//^/\\^}
     _esc_input=${_esc_input//\$/\\\$}
-    # Note: '|' is literal in standard BRE grep, so we do NOT escape it.
     _esc_out_ref=$_esc_input
 }
 
@@ -254,29 +188,29 @@ register() {
     local -i tab_idx=$1
     local label=$2 config=$3 default_val=${4:-}
     
-    # --- Type Safety Validation ---
     local key type block min max step
     IFS='|' read -r key type block min max step <<< "$config"
 
-    # Validate the 'type' field against allowed values
+    # Validate type
     case "$type" in
-        bool|int|float|cycle) ;; # Valid types
+        bool|int|float|cycle) ;;
         *)
-            printf '%s[FATAL]%s Invalid type definition for "%s": "%s"\n' \
+            printf '%s[FATAL]%s Invalid type for "%s": "%s"\n' \
                    "$C_RED" "$C_RESET" "$label" "$type" >&2
-            printf 'Allowed types: bool, int, float, cycle\n' >&2
             exit 1
             ;;
     esac
 
     if (( tab_idx < 0 || tab_idx > 9 )); then
-        printf '%s[FATAL]%s Tab index %d out of bounds (0-9)\n' \
+        printf '%s[FATAL]%s Tab index %d out of bounds\n' \
                "$C_RED" "$C_RESET" "$tab_idx" >&2
         exit 1
     fi
 
-    ITEM_MAP["$label"]=$config
-    [[ -n "$default_val" ]] && DEFAULTS["$label"]=$default_val
+    # CRITICAL FIX v2.9.0: Composite Keys
+    # Use Tab::Label as the key to allow identical labels in different tabs
+    ITEM_MAP["${tab_idx}::${label}"]=$config
+    [[ -n "$default_val" ]] && DEFAULTS["${tab_idx}::${label}"]=$default_val
 
     # shellcheck disable=SC2178
     local -n _reg_tab_ref="TAB_ITEMS_${tab_idx}"
@@ -288,15 +222,11 @@ populate_config_cache() {
     CONFIG_CACHE=()
     local key_part value_part key_name
 
-    # Parse config file with proper block tracking
-    # Output format: "key|block=value"
-    # FIX v2.7.0: Loop to find multiple blocks on the same line
     while IFS='=' read -r key_part value_part || [[ -n ${key_part:-} ]]; do
         [[ -z ${key_part:-} ]] && continue
         CONFIG_CACHE["$key_part"]=$value_part
 
         key_name=${key_part%%|*}
-        # Fallback: only set if unset (first occurrence wins for blockless lookup)
         if [[ -z ${CONFIG_CACHE["$key_name|"]:-} ]]; then
             CONFIG_CACHE["$key_name|"]=$value_part
         fi
@@ -307,14 +237,12 @@ populate_config_cache() {
             line = $0
             sub(/#.*/, "", line)
 
-            # FIX v2.7.0: Use a loop to capture ALL opening braces on the line
             tmpline = line
             while (match(tmpline, /[a-zA-Z0-9_.:-]+[[:space:]]*\{/)) {
                 block_str = substr(tmpline, RSTART, RLENGTH)
                 sub(/[[:space:]]*\{/, "", block_str)
                 depth++
                 block_stack[depth] = block_str
-                # Advance string to search for next block
                 tmpline = substr(tmpline, RSTART + RLENGTH)
             }
 
@@ -338,86 +266,44 @@ populate_config_cache() {
     ' "$CONFIG_FILE")
 }
 
-# -----------------------------------------------------------------------------
-# find_key_line_in_block (Helper for write_value_to_file)
-# Single awk pass to find block boundaries and key line.
-# Returns the line number of the key within the correct block instance.
-# -----------------------------------------------------------------------------
 find_key_line_in_block() {
     local block_name=$1 key_name=$2 file=$3
 
     awk -v target_block="$block_name" -v target_key="$key_name" '
-    BEGIN {
-        depth = 0
-        in_target = 0
-        target_depth = 0
-        found = 0
-    }
+    BEGIN { depth = 0; in_target = 0; target_depth = 0 }
     {
-        line = $0
-        clean = $0
-        sub(/#.*/, "", clean)
-
-        # Count opening braces and track block names (handles inline)
+        clean = $0; sub(/#.*/, "", clean)
         tmpline = clean
         while (match(tmpline, /[a-zA-Z0-9_.:-]+[[:space:]]*\{/)) {
             block_str = substr(tmpline, RSTART, RLENGTH)
             sub(/[[:space:]]*\{/, "", block_str)
             depth++
-            block_stack[depth] = block_str
-
-            # Check if we just entered the target block at any depth
             if (block_str == target_block && !in_target) {
-                in_target = 1
-                target_depth = depth
+                in_target = 1; target_depth = depth
             }
-
             tmpline = substr(tmpline, RSTART + RLENGTH)
         }
-
-        # Check for key assignment within target block
         if (in_target && clean ~ /=/) {
             eq_pos = index(clean, "=")
             if (eq_pos > 0) {
                 k = substr(clean, 1, eq_pos - 1)
                 gsub(/^[[:space:]]+|[[:space:]]+$/, "", k)
-                if (k == target_key) {
-                    print NR
-                    found = 1
-                    # FIX: Removed exit to ensure ALL occurrences are found
-                    # This prevents the "Zombie Config" state where only the
-                    # first instance is updated but a later one overrides it.
-                }
+                if (k == target_key) print NR
             }
         }
-
-        # Count closing braces
         n = gsub(/\}/, "}", clean)
         while (n > 0 && depth > 0) {
-            if (in_target && depth == target_depth) {
-                # Exiting the target block instance
-                in_target = 0
-                target_depth = 0
-            }
-            depth--
-            n--
+            if (in_target && depth == target_depth) { in_target = 0; target_depth = 0 }
+            depth--; n--
         }
     }
     ' "$file"
 }
 
-# -----------------------------------------------------------------------------
-# write_value_to_file - Write a value to the config file
-# -----------------------------------------------------------------------------
-# CRITICAL: This function handles the "First Block Trap"
-# FIX v2.8.0: Consolidated logic to use single AWK pass (Reduced forks)
-# FIX v2.8.2: Support updating MULTIPLE occurrences for consistency
-# -----------------------------------------------------------------------------
 write_value_to_file() {
     local key=$1 new_val=$2 block=${3:-}
     local current_val=${CONFIG_CACHE["$key|$block"]:-}
     
-    # Dirty check: skip write if value unchanged
     [[ "$current_val" == "$new_val" ]] && return 0
 
     local safe_val safe_sed_key
@@ -425,41 +311,25 @@ write_value_to_file() {
     escape_sed_pattern "$key" safe_sed_key
 
     if [[ -n $block ]]; then
-        # Use single awk pass to find exact line number(s)
         local target_output
         target_output=$(find_key_line_in_block "$block" "$key" "$CONFIG_FILE")
-
-        if [[ -z $target_output ]]; then
-            return 1
-        fi
+        [[ -z $target_output ]] && return 1
         
-        # FIX: Iterate through all found lines to update ALL instances (Consistency)
         local target_line
         while IFS= read -r target_line; do
-            # Validate that target_line is a positive integer
-            if [[ ! $target_line =~ ^[0-9]+$ ]] || (( target_line == 0 )); then
-                continue
-            fi
-
-            # Apply substitution ONLY to this specific line
+            if [[ ! $target_line =~ ^[0-9]+$ ]] || (( target_line == 0 )); then continue; fi
             sed --follow-symlinks -i \
                 "${target_line}s|^\([[:space:]]*${safe_sed_key}[[:space:]]*=[[:space:]]*\)[^#]*|\1${safe_val} |" \
                 "$CONFIG_FILE"
         done <<< "$target_output"
     else
-        # Global key update (no block context)
-        # This global command naturally updates all instances in the file.
         sed --follow-symlinks -i \
             "s|^\([[:space:]]*${safe_sed_key}[[:space:]]*=[[:space:]]*\)[^#]*|\1${safe_val} |" \
             "$CONFIG_FILE"
     fi
 
-    # Update cache on success
     CONFIG_CACHE["$key|$block"]=$new_val
-    if [[ -z $block ]]; then
-        CONFIG_CACHE["$key|"]=$new_val
-    fi
-    
+    [[ -z $block ]] && CONFIG_CACHE["$key|"]=$new_val
     return 0
 }
 
@@ -469,21 +339,18 @@ load_tab_values() {
     local item key type block val
 
     for item in "${_ltv_items_ref[@]}"; do
-        IFS='|' read -r key type block _ _ _ <<< "${ITEM_MAP[$item]}"
+        # v2.9.0: Composite Key Lookup
+        IFS='|' read -r key type block _ _ _ <<< "${ITEM_MAP["${CURRENT_TAB}::${item}"]}"
         
-        # Try exact match first (key|block)
         val=${CONFIG_CACHE["$key|$block"]:-}
-        
-        # If empty and no specific block required, try blockless lookup
         if [[ -z $val && -z $block ]]; then
             val=${CONFIG_CACHE["$key|"]:-}
         fi
         
-        # FIX: Use distinct marker so user knows value wasn't detected
         if [[ -z $val ]]; then
-            VALUE_CACHE["$item"]=$UNSET_MARKER
+            VALUE_CACHE["${CURRENT_TAB}::${item}"]=$UNSET_MARKER
         else
-            VALUE_CACHE["$item"]=$val
+            VALUE_CACHE["${CURRENT_TAB}::${item}"]=$val
         fi
     done
 }
@@ -493,32 +360,28 @@ modify_value() {
     local -i direction=$2
     local key type block min max step current new_val
 
-    IFS='|' read -r key type block min max step <<< "${ITEM_MAP[$label]}"
-    current=${VALUE_CACHE[$label]:-}
+    # v2.9.0: Composite Key Lookup
+    IFS='|' read -r key type block min max step <<< "${ITEM_MAP["${CURRENT_TAB}::${label}"]}"
+    current=${VALUE_CACHE["${CURRENT_TAB}::${label}"]:-}
     
-    # Handle unset values - use default or sensible minimum
     if [[ $current == "$UNSET_MARKER" || -z $current ]]; then
-        current=${DEFAULTS[$label]:-}
+        current=${DEFAULTS["${CURRENT_TAB}::${label}"]:-}
         [[ -z $current ]] && current=${min:-0}
     fi
 
     case $type in
         int)
-            if [[ ! $current =~ ^-?[0-9]+$ ]]; then
-                current=${min:-0}
-            fi
+            if [[ ! $current =~ ^-?[0-9]+$ ]]; then current=${min:-0}; fi
             local -i int_step=${step:-1} int_val=$current
-            (( int_val += direction * int_step )) || :
+            # v2.9.0: Safe Arithmetic
+            int_val=$(( int_val + direction * int_step ))
             
             if [[ -n $min ]] && (( int_val < min )); then int_val=$min; fi
             if [[ -n $max ]] && (( int_val > max )); then int_val=$max; fi
             new_val=$int_val
             ;;
         float)
-            if [[ ! $current =~ ^-?[0-9]*\.?[0-9]+$ ]]; then
-                current=${min:-0.0}
-            fi
-            # Note: LC_NUMERIC=C is set globally, so awk is safe here.
+            if [[ ! $current =~ ^-?[0-9]*\.?[0-9]+$ ]]; then current=${min:-0.0}; fi
             new_val=$(awk -v c="$current" -v dir="$direction" -v s="${step:-0.1}" \
                           -v mn="$min" -v mx="$max" 'BEGIN {
                 val = c + (dir * s)
@@ -528,40 +391,29 @@ modify_value() {
             }')
             ;;
         bool)
-            if [[ $current == "true" ]]; then
-                new_val="false"
-            else
-                new_val="true"
-            fi
+            if [[ $current == "true" ]]; then new_val="false"; else new_val="true"; fi
             ;;
         cycle)
             local -a opts
             IFS=',' read -r -a opts <<< "$min"
             local -i count=${#opts[@]} idx=0 i
-            
             (( count == 0 )) && return 0
 
             for (( i = 0; i < count; i++ )); do
-                if [[ "${opts[i]}" == "$current" ]]; then
-                    idx=$i
-                    break
-                fi
+                if [[ "${opts[i]}" == "$current" ]]; then idx=$i; break; fi
             done
             
-            (( idx += direction )) || :
+            # v2.9.0: Safe Arithmetic
+            idx=$(( idx + direction ))
             (( idx < 0 )) && idx=$(( count - 1 ))
             (( idx >= count )) && idx=0
             new_val=${opts[idx]}
             ;;
-        *)
-            return 0
-            ;;
+        *) return 0 ;;
     esac
 
-    # FIX: Only update cache if write succeeded
     if write_value_to_file "$key" "$new_val" "$block"; then
-        VALUE_CACHE["$label"]=$new_val
-        # TRIGGER: Post-Write Hook (Immediate for interactive edits)
+        VALUE_CACHE["${CURRENT_TAB}::${label}"]=$new_val
         post_write_action
     fi
 }
@@ -570,11 +422,11 @@ set_absolute_value() {
     local label=$1 new_val=$2
     local key type block
 
-    IFS='|' read -r key type block _ _ _ <<< "${ITEM_MAP[$label]}"
+    # v2.9.0: Composite Key Lookup
+    IFS='|' read -r key type block _ _ _ <<< "${ITEM_MAP["${CURRENT_TAB}::${label}"]}"
     
-    # FIX: Only update cache if write succeeded
     if write_value_to_file "$key" "$new_val" "$block"; then
-        VALUE_CACHE["$label"]=$new_val
+        VALUE_CACHE["${CURRENT_TAB}::${label}"]=$new_val
         return 0
     fi
     return 1
@@ -587,19 +439,16 @@ reset_defaults() {
     local -i any_written=0
 
     for item in "${_rd_items_ref[@]}"; do
-        def_val=${DEFAULTS[$item]:-}
+        # v2.9.0: Composite Key Lookup for Default
+        def_val=${DEFAULTS["${CURRENT_TAB}::${item}"]:-}
         if [[ -n $def_val ]]; then
-            # Attempt write, track if any change occurred
             if set_absolute_value "$item" "$def_val"; then
                 any_written=1
             fi
         fi
     done
 
-    # FIX v2.8.0: Batch post-write action (call only once for the whole reset)
-    if (( any_written )); then
-        post_write_action
-    fi
+    if (( any_written )); then post_write_action; fi
     return 0
 }
 
@@ -614,7 +463,6 @@ draw_ui() {
     buf+="${CURSOR_HOME}"
     buf+="${C_MAGENTA}┌${H_LINE}┐${C_RESET}"$'\n'
 
-    # Header - Dynamic Centering
     visible_len=$(( ${#APP_TITLE} + ${#APP_VERSION} + 1 ))
     left_pad=$(( (BOX_INNER_WIDTH - visible_len) / 2 ))
     right_pad=$(( BOX_INNER_WIDTH - visible_len - left_pad ))
@@ -624,7 +472,6 @@ draw_ui() {
     printf -v pad_buf '%*s' "$right_pad" ''
     buf+="${pad_buf}│${C_RESET}"$'\n'
 
-    # Tab bar rendering
     local tab_line="${C_MAGENTA}│ "
     TAB_ZONES=()
 
@@ -640,7 +487,8 @@ draw_ui() {
         fi
 
         TAB_ZONES+=("${zone_start}:$(( zone_start + len + 1 ))")
-        (( current_col += len + 4 )) || :
+        # v2.9.0: Safe Arithmetic
+        current_col=$(( current_col + len + 4 ))
     done
 
     pad_needed=$(( BOX_INNER_WIDTH - current_col + 2 ))
@@ -653,28 +501,22 @@ draw_ui() {
     buf+="${tab_line}"$'\n'
     buf+="${C_MAGENTA}└${H_LINE}┘${C_RESET}"$'\n'
 
-    # Items Rendering with scroll support
     # shellcheck disable=SC2178
     local -n _draw_items_ref="TAB_ITEMS_${CURRENT_TAB}"
     count=${#_draw_items_ref[@]}
 
-    # Bounds checking & Scroll Calculation
     if (( count == 0 )); then
-        SELECTED_ROW=0
-        SCROLL_OFFSET=0
+        SELECTED_ROW=0; SCROLL_OFFSET=0
     else
         (( SELECTED_ROW < 0 )) && SELECTED_ROW=0
         (( SELECTED_ROW >= count )) && SELECTED_ROW=$(( count - 1 ))
 
-        # Auto-scroll to keep selection visible
         if (( SELECTED_ROW < SCROLL_OFFSET )); then
             SCROLL_OFFSET=$SELECTED_ROW
         elif (( SELECTED_ROW >= SCROLL_OFFSET + MAX_DISPLAY_ROWS )); then
             SCROLL_OFFSET=$(( SELECTED_ROW - MAX_DISPLAY_ROWS + 1 ))
         fi
 
-        # Clamp scroll offset
-        (( SCROLL_OFFSET < 0 )) && SCROLL_OFFSET=0
         local -i max_scroll=$(( count - MAX_DISPLAY_ROWS ))
         (( max_scroll < 0 )) && max_scroll=0
         (( SCROLL_OFFSET > max_scroll )) && SCROLL_OFFSET=$max_scroll
@@ -684,20 +526,17 @@ draw_ui() {
     visible_end=$(( SCROLL_OFFSET + MAX_DISPLAY_ROWS ))
     (( visible_end > count )) && visible_end=$count
 
-    # Top Scroll Indicator with position info
     if (( SCROLL_OFFSET > 0 )); then
         buf+="${C_GREY}    ▲ (more above)${CLR_EOL}${C_RESET}"$'\n'
     else
         buf+="${CLR_EOL}"$'\n'
     fi
 
-    # Render Visible Items
     for (( i = visible_start; i < visible_end; i++ )); do
         item=${_draw_items_ref[i]}
-        val=${VALUE_CACHE[$item]:-$UNSET_MARKER}
+        # v2.9.0: Composite Key Lookup
+        val=${VALUE_CACHE["${CURRENT_TAB}::${item}"]:-$UNSET_MARKER}
 
-        # FIX: Use distinct yellow warning for unset values
-        # This makes it immediately obvious when config parsing failed
         case $val in
             true)              display="${C_GREEN}ON${C_RESET}" ;;
             false)             display="${C_RED}OFF${C_RESET}" ;;
@@ -715,13 +554,11 @@ draw_ui() {
         fi
     done
 
-    # Pad remaining rows to maintain stable height
     local -i rows_rendered=$(( visible_end - visible_start ))
     for (( i = rows_rendered; i < MAX_DISPLAY_ROWS; i++ )); do
         buf+="${CLR_EOL}"$'\n'
     done
 
-    # Bottom Scroll Indicator with position counter
     if (( count > MAX_DISPLAY_ROWS )); then
         local position_info="[$(( SELECTED_ROW + 1 ))/${count}]"
         if (( visible_end < count )); then
@@ -748,18 +585,14 @@ navigate() {
     local -i count=${#_nav_items_ref[@]}
 
     (( count == 0 )) && return 0
-    (( SELECTED_ROW += dir )) || :
+    # v2.9.0: Safe Arithmetic
+    SELECTED_ROW=$(( SELECTED_ROW + dir ))
 
-    # Wrap selection
     (( SELECTED_ROW < 0 )) && SELECTED_ROW=$(( count - 1 ))
     (( SELECTED_ROW >= count )) && SELECTED_ROW=0
-    
-    # CRITICAL FIX (v2.6.2): Ensure function returns 0
-    # Prevent 'set -e' from trapping on false arithmetic checks
     return 0
 }
 
-# Page navigation (no wrap)
 navigate_page() {
     local -i dir=$1
     # shellcheck disable=SC2178
@@ -767,31 +600,23 @@ navigate_page() {
     local -i count=${#_navp_items_ref[@]}
 
     (( count == 0 )) && return 0
-    (( SELECTED_ROW += dir * MAX_DISPLAY_ROWS )) || :
+    # v2.9.0: Safe Arithmetic
+    SELECTED_ROW=$(( SELECTED_ROW + dir * MAX_DISPLAY_ROWS ))
 
-    # Clamp without wrapping
     (( SELECTED_ROW < 0 )) && SELECTED_ROW=0
     (( SELECTED_ROW >= count )) && SELECTED_ROW=$(( count - 1 ))
-    
-    # CRITICAL FIX (v2.6.2): Ensure function returns 0
     return 0
 }
 
-# Jump to first/last item
 navigate_end() {
-    local -i target=$1  # 0 = first, 1 = last
+    local -i target=$1
     # shellcheck disable=SC2178
     local -n _nave_items_ref="TAB_ITEMS_${CURRENT_TAB}"
     local -i count=${#_nave_items_ref[@]}
 
     (( count == 0 )) && return 0
 
-    if (( target == 0 )); then
-        SELECTED_ROW=0
-    else
-        SELECTED_ROW=$(( count - 1 ))
-    fi
-    # CRITICAL FIX (v2.7.0): Added return 0 to prevent exit if SELECTED_ROW results in 0
+    if (( target == 0 )); then SELECTED_ROW=0; else SELECTED_ROW=$(( count - 1 )); fi
     return 0
 }
 
@@ -807,7 +632,9 @@ adjust() {
 switch_tab() {
     local -i dir=${1:-1}
 
-    (( CURRENT_TAB += dir )) || :
+    # v2.9.0: Safe Arithmetic
+    CURRENT_TAB=$(( CURRENT_TAB + dir ))
+    
     (( CURRENT_TAB >= TAB_COUNT )) && CURRENT_TAB=0
     (( CURRENT_TAB < 0 )) && CURRENT_TAB=$(( TAB_COUNT - 1 ))
 
@@ -818,7 +645,6 @@ switch_tab() {
 
 set_tab() {
     local -i idx=$1
-
     if (( idx != CURRENT_TAB && idx >= 0 && idx < TAB_COUNT )); then
         CURRENT_TAB=$idx
         SELECTED_ROW=0
@@ -829,11 +655,9 @@ set_tab() {
 
 handle_mouse() {
     local input=$1
-    # FIX: Explicitly separate integers from strings
     local -i button x y i start end
     local type zone
 
-    # STRICT SGR regex to prevent false positives
     local regex='^\[<([0-9]+);([0-9]+);([0-9]+)([Mm])$'
 
     if [[ $input =~ $regex ]]; then
@@ -842,32 +666,20 @@ handle_mouse() {
         y=${BASH_REMATCH[3]}
         type=${BASH_REMATCH[4]}
 
-        # Handle scroll wheel (button 64=up, 65=down) on any event
-        if (( button == 64 )); then
-            navigate -1
-            return 0
-        elif (( button == 65 )); then
-            navigate 1
-            return 0
-        fi
+        if (( button == 64 )); then navigate -1; return 0; fi
+        if (( button == 65 )); then navigate 1; return 0; fi
 
-        # Only handle Button Press ('M'), ignore Release ('m') for clicks
         [[ $type != "M" ]] && return 0
 
-        # Tab bar click detection (Row 3)
         if (( y == 3 )); then
             for (( i = 0; i < TAB_COUNT; i++ )); do
                 zone=${TAB_ZONES[i]}
                 start=${zone%%:*}
                 end=${zone##*:}
-                if (( x >= start && x <= end )); then
-                    set_tab "$i"
-                    return 0
-                fi
+                if (( x >= start && x <= end )); then set_tab "$i"; return 0; fi
             done
         fi
 
-        # Item click detection (accounting for top indicator offset)
         # shellcheck disable=SC2178
         local -n _mouse_items_ref="TAB_ITEMS_${CURRENT_TAB}"
         local -i count=${#_mouse_items_ref[@]}
@@ -878,12 +690,7 @@ handle_mouse() {
             if (( clicked_idx >= 0 && clicked_idx < count )); then
                 SELECTED_ROW=$clicked_idx
                 if (( x > ADJUST_THRESHOLD )); then
-                    # Fix v2.8.0: Explicit if/else for clarity
-                    if (( button == 0 )); then
-                        adjust 1
-                    else
-                        adjust -1
-                    fi
+                    if (( button == 0 )); then adjust 1; else adjust -1; fi
                 fi
             fi
         fi
@@ -894,30 +701,17 @@ handle_mouse() {
 # --- Main ---
 
 main() {
-    # 0. Bash Version Check (namerefs require 4.3+)
     if (( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 3) )); then
         printf '%s[FATAL]%s Bash 4.3+ required (found %s)\n' \
                "$C_RED" "$C_RESET" "$BASH_VERSION" >&2
         exit 1
     fi
 
-    # 1. Config Validation
-    if [[ ! -f $CONFIG_FILE ]]; then
-        log_err "Config not found: $CONFIG_FILE"
-        exit 1
-    fi
-    if [[ ! -r $CONFIG_FILE ]]; then
-        log_err "Config not readable: $CONFIG_FILE"
-        exit 1
-    fi
-    if [[ ! -w $CONFIG_FILE ]]; then
-        log_err "Config not writable: $CONFIG_FILE"
-        exit 1
-    fi
+    if [[ ! -f $CONFIG_FILE ]]; then log_err "Config not found: $CONFIG_FILE"; exit 1; fi
+    if [[ ! -r $CONFIG_FILE ]]; then log_err "Config not readable: $CONFIG_FILE"; exit 1; fi
+    if [[ ! -w $CONFIG_FILE ]]; then log_err "Config not writable: $CONFIG_FILE"; exit 1; fi
 
-    # 2. Dependency Check (Consolidated)
     local _dep
-    # FIX: Removed stty from strict check (it's optional/degrades gracefully)
     for _dep in awk sed; do
         if ! command -v "$_dep" &>/dev/null; then
             log_err "Required dependency not found: ${_dep}"
@@ -925,43 +719,40 @@ main() {
         fi
     done
 
-    # 3. Initialization
     register_items
     populate_config_cache
 
-    # 4. Save Terminal State
     ORIGINAL_STTY=$(stty -g 2>/dev/null) || ORIGINAL_STTY=""
+    
+    # CRITICAL FIX v2.9.0: Explicitly enforce blocking mode to prevent CPU spin
+    stty -icanon -echo min 1 time 0 2>/dev/null || :
 
     printf '%s%s%s%s' "$MOUSE_ON" "$CURSOR_HIDE" "$CLR_SCREEN" "$CURSOR_HOME"
     load_tab_values
 
     local key seq char
 
-    # 5. Event Loop
     while true; do
         draw_ui
 
-        # Safety: break on EOF to prevent 100% CPU loops
         IFS= read -rsn1 key || break
 
         if [[ $key == $'\x1b' ]]; then
             seq=""
-            # Fast timeout for escape sequences
             while IFS= read -rsn1 -t "$ESC_READ_TIMEOUT" char; do
                 seq+="$char"
             done
 
             case $seq in
-                '[Z')          switch_tab -1 ;;     # Shift+Tab
-                '[A'|'OA')     navigate -1 ;;       # Arrow Up
-                '[B'|'OB')     navigate 1 ;;        # Arrow Down
-                '[C'|'OC')     adjust 1 ;;          # Arrow Right
-                '[D'|'OD')     adjust -1 ;;         # Arrow Left
-                '[5~')         navigate_page -1 ;;  # Page Up
-                '[6~')         navigate_page 1 ;;   # Page Down
-                '[H'|'[1~')    navigate_end 0 ;;    # Home
-                '[F'|'[4~')    navigate_end 1 ;;    # End
-                # VERY IMPORTANT TO USE THIS FOR loose glob for better compatibility, OTHERWISE MOUSE DOESN'T WORK!!!!
+                '[Z')          switch_tab -1 ;;
+                '[A'|'OA')     navigate -1 ;;
+                '[B'|'OB')     navigate 1 ;;
+                '[C'|'OC')     adjust 1 ;;
+                '[D'|'OD')     adjust -1 ;;
+                '[5~')         navigate_page -1 ;;
+                '[6~')         navigate_page 1 ;;
+                '[H'|'[1~')    navigate_end 0 ;;
+                '[F'|'[4~')    navigate_end 1 ;;
                 '['*'<'*)      handle_mouse "$seq" ;;
             esac
         else
@@ -970,8 +761,8 @@ main() {
                 j|J)           navigate 1 ;;
                 l|L)           adjust 1 ;;
                 h|H)           adjust -1 ;;
-                g)             navigate_end 0 ;;    # vim: go to top
-                G)             navigate_end 1 ;;    # vim: go to bottom
+                g)             navigate_end 0 ;;
+                G)             navigate_end 1 ;;
                 $'\t')         switch_tab 1 ;;
                 r|R)           reset_defaults ;;
                 q|Q|$'\x03')   break ;;

@@ -70,6 +70,7 @@ readonly TARGET_FILES=(
     "dusky_input.desktop"
     "dusky_keybinds.desktop"
     "dusky_monitor.desktop"
+    "dusky_matugen_presets.desktop"
     "dusky_power.desktop"
     "dusky_waybars.desktop"
     "dusky_window_rules.desktop"

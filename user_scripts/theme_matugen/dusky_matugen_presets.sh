@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # -----------------------------------------------------------------------------
-# Matugen TUI Controller v3.1.0 (Refined Dusky Edition)
+# Dusky Matugen Presets v3.6.0 (Optimized & Hardened)
 # -----------------------------------------------------------------------------
 # Target: Arch Linux / Hyprland / Matugen
-# Description: High-performance, robust TUI for applying Matugen color schemes.
+# Description: High-performance TUI for applying Matugen color schemes.
 # -----------------------------------------------------------------------------
 
 set -euo pipefail
@@ -16,7 +16,11 @@ export LC_NUMERIC=C
 # =============================================================================
 
 readonly APP_TITLE="Dusky Matugen Presets"
-readonly APP_VERSION="v3.1.0"
+readonly APP_VERSION="v3.6.0"
+
+# --- State Management ---
+readonly USE_STATE_FILE=true
+readonly STATE_FILE="${HOME}/.config/dusky/settings/dusky_theme/state.conf"
 
 # Dimensions & Layout
 declare -ri MAX_DISPLAY_ROWS=16
@@ -26,9 +30,9 @@ declare -ri ADJUST_THRESHOLD=40
 declare -ri ITEM_PADDING=30
 
 # Tabs
-readonly -a TABS=("Vibrant" "Neon" "Deep" "Pastel" "Mono" "Custom" "Settings")
+declare -ra TABS=("Vibrant" "Neon" "Deep" "Pastel" "Mono" "Custom" "Settings")
 
-# Global State for Matugen Flags
+# Global Settings (Defaults)
 declare -A SETTINGS=(
     ["type"]="scheme-fidelity"
     ["mode"]="dark"
@@ -59,7 +63,8 @@ readonly CURSOR_SHOW=$'\033[?25h'
 readonly MOUSE_ON=$'\033[?1000h\033[?1002h\033[?1006h'
 readonly MOUSE_OFF=$'\033[?1000l\033[?1002l\033[?1006l'
 
-# Timeout for reading escape sequences
+# Timeout for reading escape sequence continuation bytes
+# Kept at 0.02s to match dusky_tui.sh template
 readonly ESC_READ_TIMEOUT=0.02
 
 # =============================================================================
@@ -71,22 +76,29 @@ declare -a TAB_ITEMS_0=() TAB_ITEMS_1=() TAB_ITEMS_2=() TAB_ITEMS_3=()
 declare -a TAB_ITEMS_4=() TAB_ITEMS_5=() TAB_ITEMS_6=()
 
 register() {
-    # Sanity check to prevent logic errors
     if (( $# != 3 )); then
-        printf '%s[BUG]%s register() requires 3 args, got %d\n' "$C_RED" "$C_RESET" "$#" >&2
+        printf '%s[BUG]%s register() requires 3 args, got %d\n' \
+            "$C_RED" "$C_RESET" "$#" >&2
         return 1
     fi
 
     local -i tab_idx=$1
     local label=$2 value=$3
 
-    ITEM_MAP["${label}"]="${value}"
+    if (( tab_idx < 0 || tab_idx > 6 )); then
+        printf '%s[BUG]%s register() tab_idx %d out of range [0-6]\n' \
+            "$C_RED" "$C_RESET" "$tab_idx" >&2
+        return 1
+    fi
+
+    # Use composite key for direct lookup
+    ITEM_MAP["${tab_idx}::${label}"]="${value}"
 
     local -n _reg_ref="TAB_ITEMS_${tab_idx}"
     _reg_ref+=("${label}")
 }
 
-# --- TAB 0: VIBRANT (High Saturation, Fidelity Focused) ---
+# --- TAB 0: VIBRANT ---
 register 0 "Hyper Red"         "#FF0000"
 register 0 "Electric Blue"     "#0000FF"
 register 0 "Toxic Green"       "#00FF00"
@@ -108,7 +120,7 @@ register 0 "Solid Gold"        "#FFD700"
 register 0 "Rich Teal"         "#008080"
 register 0 "Olive Drab"        "#808000"
 
-# --- TAB 1: NEON / CYBER (High Brightness) ---
+# --- TAB 1: NEON / CYBER ---
 register 1 "Laser Lemon"       "#FFFF66"
 register 1 "Hot Pink"          "#FF69B4"
 register 1 "Cyber Grape"       "#58427C"
@@ -128,7 +140,7 @@ register 1 "Highlighter Blue"  "#1F51FF"
 register 1 "Shocking Pink"     "#FC0FC0"
 register 1 "Lime Light"        "#BFFF00"
 
-# --- TAB 2: DEEP / DARK (Rich Colors) ---
+# --- TAB 2: DEEP / DARK ---
 register 2 "Midnight Blue"     "#191970"
 register 2 "Dark Slate"        "#2F4F4F"
 register 2 "Saddle Brown"      "#8B4513"
@@ -146,7 +158,7 @@ register 2 "Night Sky"         "#0C090A"
 register 2 "Black Cherry"      "#540026"
 register 2 "Deep Coffee"       "#3B2F2F"
 
-# --- TAB 3: PASTEL (Soft & Light) ---
+# --- TAB 3: PASTEL ---
 register 3 "Baby Blue"         "#89CFF0"
 register 3 "Mint Cream"        "#F5FFFA"
 register 3 "Lavender"          "#E6E6FA"
@@ -181,9 +193,6 @@ register 5 "Input RGB Values"  "ACTION_INPUT_RGB"
 register 5 "Regenerate Last"   "ACTION_REGEN"
 
 # --- TAB 6: SETTINGS ---
-# Syntax: key|type|data
-# For cycle: data = comma,separated,options
-# For float: data = min|max|step
 register 6 "Scheme Type"       "type|cycle|scheme-fidelity,scheme-content,scheme-fruit-salad,scheme-rainbow,scheme-neutral,scheme-tonal-spot,scheme-expressive,scheme-monochrome"
 register 6 "Mode"              "mode|cycle|dark,light"
 register 6 "Contrast"          "contrast|float|-1.0|1.0|0.1"
@@ -201,6 +210,54 @@ declare ORIGINAL_STTY=""
 declare LAST_APPLIED_HEX="#FF0000"
 declare LAST_STATUS_MSG=""
 
+load_state() {
+    [[ "${USE_STATE_FILE}" != "true" ]] && return 0
+    [[ ! -f "${STATE_FILE}" ]] && return 0
+
+    local key value
+    # Pure bash read loop (No grep/cut forks)
+    while IFS='=' read -r key value; do
+        # Skip comments
+        [[ $key == \#* ]] && continue
+        
+        # Trim value
+        value=${value//$'\n'/}
+        value=${value//\"/}
+
+        case "$key" in
+            THEME_MODE)       [[ -n $value ]] && SETTINGS["mode"]="$value" ;;
+            MATUGEN_TYPE)     [[ -n $value ]] && SETTINGS["type"]="$value" ;;
+            MATUGEN_CONTRAST)
+                if [[ -n $value ]]; then
+                    if [[ $value == "disable" ]]; then
+                        SETTINGS["contrast"]="0.0"
+                    else
+                        SETTINGS["contrast"]="$value"
+                    fi
+                fi
+                ;;
+        esac
+    done < "${STATE_FILE}"
+}
+
+save_state() {
+    [[ "${USE_STATE_FILE}" != "true" ]] && return 0
+
+    local dir="${STATE_FILE%/*}"
+    mkdir -p "${dir}"
+
+    local contrast_val="${SETTINGS["contrast"]}"
+    if [[ "${contrast_val}" == "0.0" || "${contrast_val}" == "0" ]]; then
+        contrast_val="disable"
+    fi
+
+    # Use printf for safety (prevents variable expansion injection)
+    printf '# Dusky Theme State File\nTHEME_MODE=%s\nMATUGEN_TYPE=%s\nMATUGEN_CONTRAST=%s\n' \
+        "${SETTINGS["mode"]}" \
+        "${SETTINGS["type"]}" \
+        "$contrast_val" > "${STATE_FILE}"
+}
+
 # =============================================================================
 # ▼ CORE LOGIC ▼
 # =============================================================================
@@ -210,7 +267,6 @@ log_err() {
 }
 
 cleanup() {
-    # Restore terminal state
     printf '%s%s%s' "${MOUSE_OFF}" "${CURSOR_SHOW}" "${C_RESET}"
     if [[ -n "${ORIGINAL_STTY:-}" ]]; then
         stty "${ORIGINAL_STTY}" 2>/dev/null || :
@@ -223,14 +279,14 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 apply_matugen() {
-    local hex=${1^^} # Normalize to Uppercase
+    local hex="${1^^}"
     local type="${SETTINGS["type"]}"
     local mode="${SETTINGS["mode"]}"
     local contrast="${SETTINGS["contrast"]}"
 
     LAST_APPLIED_HEX="${hex}"
+    save_state
 
-    # Run Matugen silently, capturing success status
     if matugen color hex "${hex}" \
         --type "${type}" \
         --mode "${mode}" \
@@ -243,16 +299,23 @@ apply_matugen() {
 
 prompt_input() {
     local prompt_text=$1
-    local -n _prompt_out=$2 # Nameref for return value
+    local -n _prompt_out=$2
 
-    # Clear screen and show prompt
+    # Switch to cooked mode for typing
+    if [[ -n "${ORIGINAL_STTY:-}" ]]; then
+        stty "${ORIGINAL_STTY}" 2>/dev/null || stty sane
+    else
+        stty sane
+    fi
+
     printf '%s%s%s' "${CURSOR_SHOW}" "${C_RESET}" "${CLR_SCREEN}"
     printf '%s%s➤ %s%s ' "${CURSOR_HOME}" "${C_CYAN}" "${prompt_text}" "${C_RESET}"
 
     _prompt_out=""
     read -r _prompt_out || :
 
-    # Restore hidden cursor
+    # Restore Raw Mode immediately
+    stty -icanon -echo min 1 time 0 2>/dev/null || :
     printf '%s' "${CURSOR_HIDE}"
 }
 
@@ -261,20 +324,20 @@ validate_hex() {
 }
 
 validate_rgb_component() {
-    [[ $1 =~ ^[0-9]+$ ]] && (( $1 >= 0 && $1 <= 255 ))
+    [[ -n "${1:-}" && $1 =~ ^[0-9]+$ ]] && (( 10#$1 >= 0 && 10#$1 <= 255 ))
 }
 
 modify_setting() {
     local label=$1
     local -i direction=$2
-    local config="${ITEM_MAP[${label}]}"
+    # Direct Map Access (Optimized)
+    local config="${ITEM_MAP["6::${label}"]}"
     local key type rest
 
-    # Dynamic parsing of key|type|rest
     key="${config%%|*}"
     rest="${config#*|}"
     type="${rest%%|*}"
-    rest="${rest#*|}" # This contains options or min|max|step
+    rest="${rest#*|}"
 
     local current="${SETTINGS[${key}]}"
     local new_val=""
@@ -292,7 +355,6 @@ modify_setting() {
                 fi
             done
 
-            # Modular arithmetic for cycling
             idx=$(( (idx + direction % count + count) % count ))
             new_val="${opts[idx]}"
             ;;
@@ -300,7 +362,6 @@ modify_setting() {
             local s_min s_max s_step
             IFS='|' read -r s_min s_max s_step <<< "${rest}"
 
-            # Robust float math via awk
             new_val=$(awk \
                 -v c="${current}" \
                 -v dir="${direction}" \
@@ -315,19 +376,19 @@ modify_setting() {
                 }')
             ;;
         *)
-            log_err "Unknown setting type: ${type}"
             return 0
             ;;
     esac
 
     SETTINGS["${key}"]="${new_val}"
+    save_state
 }
 
 trigger_action() {
     local label=$1
-    local val="${ITEM_MAP[${label}]}"
+    # Direct Map Access (Optimized)
+    local val="${ITEM_MAP["${CURRENT_TAB}::${label}"]}"
 
-    # Special handling for Settings Tab (Index 6)
     if (( CURRENT_TAB == 6 )); then
         modify_setting "${label}" 1
         return 0
@@ -347,13 +408,13 @@ trigger_action() {
         ACTION_INPUT_RGB)
             local rgb_str="" r="" g="" b=""
             prompt_input "Enter RGB (e.g. 255 0 0):" rgb_str
-            read -r r g b _ <<< "${rgb_str}" # Safe read, discards extras
-            
+            read -r r g b _ <<< "${rgb_str}"
+
             if validate_rgb_component "${r:-}" \
                 && validate_rgb_component "${g:-}" \
                 && validate_rgb_component "${b:-}"; then
                 local hex
-                printf -v hex '#%02x%02x%02x' "${r}" "${g}" "${b}"
+                printf -v hex '#%02x%02x%02x' "$(( 10#${r} ))" "$(( 10#${g} ))" "$(( 10#${b} ))"
                 apply_matugen "${hex}"
             else
                 LAST_STATUS_MSG="${C_RED}Invalid RGB values${C_RESET}"
@@ -362,8 +423,7 @@ trigger_action() {
         ACTION_REGEN)
             apply_matugen "${LAST_APPLIED_HEX}"
             ;;
-        \#*)
-            # It's a standard color preset
+        '#'*)
             apply_matugen "${val}"
             ;;
     esac
@@ -382,9 +442,8 @@ draw_ui() {
     buf+="${CURSOR_HOME}"
 
     # Top Border
-    buf+="${C_MAGENTA}┌"
     printf -v pad_buf '%*s' "${BOX_INNER_WIDTH}" ''
-    buf+="${pad_buf// /─}┐${C_RESET}"$'\n'
+    buf+="${C_MAGENTA}┌${pad_buf// /─}┐${C_RESET}"$'\n'
 
     # Header
     visible_len=$(( ${#APP_TITLE} + ${#APP_VERSION} + 1 ))
@@ -397,14 +456,16 @@ draw_ui() {
     buf+="${pad_buf}│${C_RESET}"$'\n'
 
     # Status Line
-    local status_line="Mode: ${SETTINGS[mode]} | Type: ${SETTINGS[type]} | Contrast: ${SETTINGS[contrast]}"
-    visible_len=${#status_line}
-    if (( visible_len > BOX_INNER_WIDTH - 2 )); then visible_len=$(( BOX_INNER_WIDTH - 2 )); fi
-    left_pad=$(( (BOX_INNER_WIDTH - visible_len) / 2 ))
-    right_pad=$(( BOX_INNER_WIDTH - visible_len - left_pad ))
+    local status_line="${C_MAGENTA}Mode: ${C_CYAN}${SETTINGS[mode]} ${C_MAGENTA}| Type: ${C_CYAN}${SETTINGS[type]} ${C_MAGENTA}| Contrast: ${C_CYAN}${SETTINGS[contrast]}${C_RESET}"
+    local raw_status="Mode: ${SETTINGS[mode]} | Type: ${SETTINGS[type]} | Contrast: ${SETTINGS[contrast]}"
+    local -i raw_len=${#raw_status}
+
+    if (( raw_len > BOX_INNER_WIDTH - 2 )); then raw_len=$(( BOX_INNER_WIDTH - 2 )); fi
+    left_pad=$(( (BOX_INNER_WIDTH - raw_len) / 2 ))
+    right_pad=$(( BOX_INNER_WIDTH - raw_len - left_pad ))
 
     printf -v pad_buf '%*s' "${left_pad}" ''
-    buf+="${C_MAGENTA}│${C_GREY}${pad_buf}${status_line:0:${visible_len}}"
+    buf+="${C_MAGENTA}│${pad_buf}${status_line}"
     printf -v pad_buf '%*s' "${right_pad}" ''
     buf+="${pad_buf}${C_MAGENTA}│${C_RESET}"$'\n'
 
@@ -420,11 +481,11 @@ draw_ui() {
         if (( i == CURRENT_TAB )); then
             tab_line+="${C_CYAN}${C_INVERSE} ${name} ${C_RESET}${C_MAGENTA}│ "
         else
-            tab_line+="${C_GREY} ${name} ${C_MAGENTA}│ "
+            tab_line+="${C_MAGENTA} ${name} ${C_MAGENTA}│ "
         fi
 
         TAB_ZONES+=("${zone_start}:$(( zone_start + len + 1 ))")
-        (( current_col += len + 4 )) || :
+        (( current_col += len + 4 )) || true
     done
 
     pad_needed=$(( BOX_INNER_WIDTH - current_col + 2 ))
@@ -437,9 +498,8 @@ draw_ui() {
     buf+="${tab_line}"$'\n'
 
     # Bottom Border
-    buf+="${C_MAGENTA}└"
     printf -v pad_buf '%*s' "${BOX_INNER_WIDTH}" ''
-    buf+="${pad_buf// /─}┘${C_RESET}"$'\n'
+    buf+="${C_MAGENTA}└${pad_buf// /─}┘${C_RESET}"$'\n'
 
     # Item List Logic
     local -n _draw_ref="TAB_ITEMS_${CURRENT_TAB}"
@@ -449,18 +509,15 @@ draw_ui() {
     if (( count == 0 )); then
         SELECTED_ROW=0; SCROLL_OFFSET=0
     else
-        # Bounds clamping
         (( SELECTED_ROW < 0 )) && SELECTED_ROW=0
         (( SELECTED_ROW >= count )) && SELECTED_ROW=$(( count - 1 ))
 
-        # Auto-scroll
         if (( SELECTED_ROW < SCROLL_OFFSET )); then
             SCROLL_OFFSET=${SELECTED_ROW}
         elif (( SELECTED_ROW >= SCROLL_OFFSET + MAX_DISPLAY_ROWS )); then
             SCROLL_OFFSET=$(( SELECTED_ROW - MAX_DISPLAY_ROWS + 1 ))
         fi
 
-        # Scroll clamping
         local -i max_scroll=$(( count - MAX_DISPLAY_ROWS ))
         (( max_scroll < 0 )) && max_scroll=0
         (( SCROLL_OFFSET > max_scroll )) && SCROLL_OFFSET=${max_scroll}
@@ -473,23 +530,34 @@ draw_ui() {
     # Render List Items
     for (( i = visible_start; i < visible_end; i++ )); do
         item="${_draw_ref[i]}"
+        # OPTIMIZED: Direct map access instead of subshell call
+        val="${ITEM_MAP["${CURRENT_TAB}::${item}"]}"
 
-        # Display Logic
         if (( CURRENT_TAB == 6 )); then
-            # Settings Tab
-            local key="${ITEM_MAP[${item}]%%|*}"
-            val="${SETTINGS[${key}]}"
-            display="${C_YELLOW}◀ ${val} ▶${C_RESET}"
+            local key="${val%%|*}"
+            local setting_val="${SETTINGS[${key}]}"
+            display="${C_YELLOW}◀ ${setting_val} ▶${C_RESET}"
         elif (( CURRENT_TAB == 5 )); then
-            # Custom Tab
-            display="${C_GREY}>>${C_RESET}"
-        else
-            # Color Tabs
-            val="${ITEM_MAP[${item}]}"
-            if [[ "${val^^}" == "${LAST_APPLIED_HEX^^}" ]]; then
-                display="${C_GREEN}● ACTIVE${C_RESET}"
+            if [[ "${val}" == "ACTION_REGEN" ]]; then
+                display="${C_YELLOW}[Enter] to Run${C_RESET}"
             else
-                display="${C_GREY}${val}${C_RESET}"
+                display="${C_CYAN}[Enter] to Type${C_RESET}"
+            fi
+        else
+            # Color Tabs: Render TrueColor preview dot
+            local dot=""
+            if [[ "${val}" =~ ^#?([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$ ]]; then
+                local -i cr=$(( 16#${BASH_REMATCH[1]} ))
+                local -i cg=$(( 16#${BASH_REMATCH[2]} ))
+                local -i cb=$(( 16#${BASH_REMATCH[3]} ))
+
+                printf -v dot '\033[38;2;%d;%d;%dm●\033[0m' "${cr}" "${cg}" "${cb}"
+            fi
+
+            if [[ "${val^^}" == "${LAST_APPLIED_HEX^^}" ]]; then
+                display="${dot} ${C_GREEN}ACTIVE${C_RESET}"
+            else
+                display="${dot} ${C_GREY}${val}${C_RESET}"
             fi
         fi
 
@@ -531,9 +599,10 @@ navigate() {
     local -i count=${#_nav_ref[@]}
 
     (( count == 0 )) && return 0
-    (( SELECTED_ROW += dir )) || :
+    
+    # Simple arithmetic (fixed set -e trap)
+    SELECTED_ROW=$(( SELECTED_ROW + dir ))
 
-    # Wrap selection
     if (( SELECTED_ROW < 0 )); then
         SELECTED_ROW=$(( count - 1 ))
     elif (( SELECTED_ROW >= count )); then
@@ -544,9 +613,8 @@ navigate() {
 
 switch_tab() {
     local -i dir=${1:-1}
-    (( CURRENT_TAB += dir )) || :
-    
-    # Wrap tabs
+    CURRENT_TAB=$(( CURRENT_TAB + dir ))
+
     if (( CURRENT_TAB >= TAB_COUNT )); then
         CURRENT_TAB=0
     elif (( CURRENT_TAB < 0 )); then
@@ -575,9 +643,8 @@ handle_mouse() {
     local -i button x y
     local match_type
 
-    # SGR Mouse Regex
-    # Matches: \x1b[<0;20;10M
-    if [[ "${input}" =~ ^\[?\<([0-9]+)\;([0-9]+)\;([0-9]+)([Mm])$ ]]; then
+    # Strict SGR regex matching dusky_tui.sh template behavior
+    if [[ "${input}" =~ ^\[<([0-9]+)\;([0-9]+)\;([0-9]+)([Mm])$ ]]; then
         button=${BASH_REMATCH[1]}
         x=${BASH_REMATCH[2]}
         y=${BASH_REMATCH[3]}
@@ -586,30 +653,32 @@ handle_mouse() {
         return 0
     fi
 
-    # Scroll Wheel (64=Up, 65=Down)
+    # Scroll wheel
     if (( button == 64 )); then navigate -1; return 0; fi
     if (( button == 65 )); then navigate 1; return 0; fi
 
-    # Only process Click Press (M), ignore Release (m)
+    # Only act on button press, not release
     [[ "${match_type}" != "M" ]] && return 0
 
-    # Tab Bar Click (Row 4)
+    # Tab bar clicks (row 4)
     if (( y == 4 )); then
-        local -i i start end
+        local -i ti start end
         local zone
-        for (( i = 0; i < TAB_COUNT; i++ )); do
-            zone="${TAB_ZONES[i]}"
+        for (( ti = 0; ti < TAB_COUNT; ti++ )); do
+            zone="${TAB_ZONES[ti]}"
             start="${zone%%:*}"
             end="${zone##*:}"
             if (( x >= start && x <= end )); then
-                CURRENT_TAB=$i; SELECTED_ROW=0; SCROLL_OFFSET=0
+                CURRENT_TAB=$ti
+                SELECTED_ROW=0
+                SCROLL_OFFSET=0
                 return 0
             fi
         done
         return 0
     fi
 
-    # Item Click
+    # Item list clicks
     local -i item_start_y=$(( ITEM_START_ROW + 1 ))
     local -n _mouse_ref="TAB_ITEMS_${CURRENT_TAB}"
     local -i count=${#_mouse_ref[@]}
@@ -618,9 +687,12 @@ handle_mouse() {
         local -i clicked_idx=$(( y - item_start_y + SCROLL_OFFSET ))
         if (( clicked_idx >= 0 && clicked_idx < count )); then
             SELECTED_ROW=${clicked_idx}
-            # Settings Tab + Right Side Click = Adjust Value
             if (( CURRENT_TAB == 6 && x > ADJUST_THRESHOLD )); then
-                if (( button == 0 )); then adjust_setting 1; else adjust_setting -1; fi
+                if (( button == 0 )); then
+                    adjust_setting 1
+                else
+                    adjust_setting -1
+                fi
             else
                 trigger_action "${_mouse_ref[${clicked_idx}]}"
             fi
@@ -633,46 +705,43 @@ handle_mouse() {
 # =============================================================================
 
 main() {
-    # 1. Dependency Check
+    # Check for awk/sed (standard) and matugen (required app)
     local dep
-    for dep in matugen awk; do
+    for dep in awk sed matugen; do
         if ! command -v "${dep}" &>/dev/null; then
             log_err "Required dependency not found: ${dep}"
             exit 1
         fi
     done
 
-    # 2. Setup Terminal
-    ORIGINAL_STTY=$(stty -g 2>/dev/null) || ORIGINAL_STTY=""
-    # CRITICAL: Set raw mode for reliable input handling (AI 2 fix)
-    stty -icanon -echo min 0 time 0 2>/dev/null || :
+    load_state
 
-    # 3. Enter UI Mode
+    ORIGINAL_STTY=$(stty -g 2>/dev/null) || ORIGINAL_STTY=""
+    stty -icanon -echo min 1 time 0 2>/dev/null || true
+
     printf '%s%s%s%s' "${MOUSE_ON}" "${CURSOR_HIDE}" "${CLR_SCREEN}" "${CURSOR_HOME}"
 
     local key seq char
 
     while true; do
         draw_ui
-        
-        # Non-blocking read (due to stty settings)
+
         IFS= read -rsn1 key || break
 
         if [[ "${key}" == $'\x1b' ]]; then
             seq=""
-            # Read rest of escape sequence with timeout
             while IFS= read -rsn1 -t "${ESC_READ_TIMEOUT}" char; do
                 seq+="${char}"
             done
 
             case "${seq}" in
-                '[Z')           switch_tab -1 ;;     # Shift+Tab
-                '[A'|'OA')      navigate -1 ;;       # Up
-                '[B'|'OB')      navigate 1 ;;        # Down
-                '[C'|'OC')      adjust_setting 1 ;;  # Right
-                '[D'|'OD')      adjust_setting -1 ;; # Left
+                '[Z')           switch_tab -1 ;;
+                '[A'|'OA')      navigate -1 ;;
+                '[B'|'OB')      navigate 1 ;;
+                '[C'|'OC')      adjust_setting 1 ;;
+                '[D'|'OD')      adjust_setting -1 ;;
                 '['*'<'*)       handle_mouse "${seq}" ;;
-                *)              ;; # Ignore unknowns
+                *)              ;;
             esac
         else
             case "${key}" in
@@ -683,7 +752,7 @@ main() {
                 $'\t')          switch_tab 1 ;;
                 $'\n'|'')       handle_enter ;;
                 q|Q|$'\x03')    break ;;
-                *)              ;; 
+                *)              ;;
             esac
         fi
     done
