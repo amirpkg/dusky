@@ -10,11 +10,12 @@
 
 * {
   border: none;
-  border-radius: 0;
+  text-shadow: 0 0 6px alpha(currentColor, 0.6);
   min-height: 0;
+  border-radius: 14px;
   font-family: "JetBrainsMono Nerd Font", "Symbols Nerd Font", sans-serif;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 window#waybar {
@@ -26,10 +27,9 @@ window#waybar {
    ───────────────────────────────────────────────────────────────────────────── */
 
 window#waybar > box {
-  background-color: alpha(@surface, 0.78);
+  background-color: alpha(@surface, 0.25);
   border-radius: 14px;
   border: 1px solid alpha(@outline_variant, 0.15);
-  box-shadow: 0 4px 16px alpha(@shadow, 0.35), 0 1px 3px alpha(@shadow, 0.2);
   margin: 4px 0;
 }
 
@@ -44,13 +44,13 @@ window#waybar > box {
   background-image: linear-gradient(135deg, @primary_container 0%, @primary_fixed_dim 100%);
   color: @on_primary_container;
   font-size: 19px;
-  box-shadow: 0 2px 8px alpha(@primary, 0.3);
+  box-shadow: 0 0 3px alpha(@primary, 0.3);
   transition: all 0.2s ease-in-out;
 }
 
 #custom-launcher:hover {
   background-image: linear-gradient(135deg, @primary_fixed_dim 0%, @primary 100%);
-  box-shadow: 0 4px 16px alpha(@primary, 0.4);
+  box-shadow: 0 0 3px alpha(@primary, 0.5);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -242,7 +242,7 @@ window#waybar > box {
 }
 
 #workspaces button.empty {
-  padding: 0 6px;
+  padding: 0 6px 0px 2px;
   min-width: 20px;
   background-color: alpha(@surface_container_high, 0.2);
   color: alpha(@on_surface_variant, 0.4);
@@ -254,11 +254,11 @@ window#waybar > box {
 }
 
 #workspaces button.active {
-  padding: 0px 1px 0px 1px;
+  /* padding: 0px 1px 0px 1px; */
   min-width: 28px;
   background-image: linear-gradient(135deg, @primary_container 0%, @primary_fixed_dim 100%);
   color: @on_primary_container;
-  box-shadow: 0 2px 8px alpha(@primary, 0.35);
+  box-shadow: 0 0 3px alpha(@primary, 0.35);
   font-weight: 700;
 }
 
@@ -269,7 +269,7 @@ window#waybar > box {
 
 #workspaces button.active:hover {
   background-image: linear-gradient(135deg, @primary_fixed_dim 0%, @primary 100%);
-  box-shadow: 0 3px 12px alpha(@primary, 0.45);
+  box-shadow: 0 0 3px alpha(@primary, 0.45);
 }
 
 #workspaces button.urgent {
@@ -324,7 +324,7 @@ window#waybar > box {
    CUSTOM NET SPEED
    ───────────────────────────────────────────────────────────────────────────── */
 
-#custom-net-speed {
+/* #custom-net-speed {
   padding: 0px 12px 0px 8px;
   margin: 6px 8px;
   border-radius: 10px;
@@ -336,6 +336,17 @@ window#waybar > box {
 
 #custom-net-speed:hover {
   background-color: alpha(@surface_container_high, 0.9);
+} */
+
+#custom-cava {
+  padding: 0px 12px 0px 9px;
+  margin: 5px 2px;
+  border-radius: 10px;
+  background-color: alpha(@secondary_container, 0.4);
+  color: @secondary;
+  font-size: 12px;
+  border: 1px solid alpha(@secondary, 0.2);
+  transition: all 0.2s ease-in-out;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -536,7 +547,7 @@ window#waybar > box {
   color: @on_error;
   background-image: linear-gradient(135deg, @error_container 0%, @error 100%);
   animation: critical-blink 1s ease-in-out infinite;
-  box-shadow: 0 2px 8px alpha(@error, 0.4);
+  box-shadow: 0 0 3px alpha(@error, 0.4);
 }
 
 @keyframes critical-blink {
@@ -556,14 +567,14 @@ window#waybar > box {
   background-image: linear-gradient(135deg, @primary_container 0%, @primary_fixed_dim 100%);
   color: @on_primary_container;
   font-size: 14px;
-  box-shadow: 0 2px 8px alpha(@error, 0.25);
+  box-shadow: 0 0 3px alpha(@error, 0.25);
   transition: all 0.2s ease-in-out;
 }
 
 #custom-power:hover {
   background-color: @error;
   background-image: none;
-  box-shadow: 0 4px 16px alpha(@error, 0.4);
+  box-shadow: 0 0 3px alpha(@error, 0.4);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -574,7 +585,7 @@ tooltip {
   background-color: alpha(@surface_container_high, 0.95);
   border: 1px solid alpha(@outline_variant, 0.3);
   border-radius: 12px;
-  box-shadow: 0 8px 24px alpha(@shadow, 0.4);
+  box-shadow: 0 0 3px alpha(@shadow, 0.4);
 }
 
 tooltip label {

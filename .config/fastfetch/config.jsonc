@@ -1,88 +1,79 @@
 {
-    "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
+    "$schema": "file:///home/emrxuz/.config/fastfetch/schema.json",
     "logo": {
-    	"source": "~/.config/fastfetch/pngs/arch.png",
-    	"type": "kitty",
-    	"height": 10,
-    	"padding": {
-    		"top": 1
-    	}
+        "source": "~/.config/fastfetch/pngs/arch.png",
+        "type": "kitty",
+        "height": 10,
+        "padding": {
+            "top": 2,
+            "left": 4
+        }
     },
     "display": {
-        "separator": " "
+        "separator": "",
+        "constants": [
+            "──────────────────────────────",
+            "\u001b[30D",
+            "\u001b[30C"
+        ]
     },
     "modules": [
+        "break",
         {
-            "key": "╭───────────╮",
-            "type": "custom"
+            "type": "custom",
+            "key": "╭───────────┬{$1}╮",
+            "format": ""
         },
         {
-            "key": "│ {#31} user    {#keys}│",
-            "type": "title",
-            "format": "{user-name}"
+            "type": "os",
+            "key": "│ {#34}󰣇 OS      {#keys}│{$3}│{$2}",
+            "format": "{#34}{2} {12}"
         },
         {
-            "key": "│ {#32} display {#keys}│",
-            "type": "display",
-            "compactType": "original-with-refresh-rate"
+            "type": "kernel",
+            "key": "│ {#35} KRNL    {#keys}│{$3}│{$2}",
+            "format": "{#35}{sysname} {release}"
         },
         {
-            "key": "│ {#33}󰅐 uptime  {#keys}│",
-            "type": "uptime"
+            "type": "uptime",
+            "key": "│ {#33}󰅐 UP      {#keys}│{$3}│{$2}",
+            "format": "{#33}{10}"
         },
         {
-            "key": "│ {#34}󱦟 install {#keys}│",
-            "type": "command",
-            "text": "birth_install=$(stat -c %W /); current=$(date +%s); time_progression=$((current - birth_install)); days_difference=$((time_progression / 86400)); echo $days_difference days"
+            "type": "wm",
+            "key": "│ {#36}󰇄 WM/DE   {#keys}│{$3}│{$2}",
+            "format": "{#36}{1} {5} ({3})"
         },
         {
-            "key": "│ {#35} kernel  {#keys}│",
-            "type": "kernel"
+            "type": "packages",
+            "key": "│ {#32}󰏖 PKGS    {#keys}│{$3}│{$2}",
+            "format": "{#32}{1}"
         },
         {
-            "key": "│ {#36}󰇄 desktop {#keys}│",
-            "type": "de"
-        },
-        {
-            "key": "│ {#32} shell   {#keys}│",
-            "type": "shell"
-        },
-        {
-            "key": "│ {#33}󰍛 cpu     {#keys}│",
             "type": "cpu",
-            "showPeCoreCount": true
+            "key": "│ {#33}󰍛 CPU     {#keys}│{$3}│{$2}",
+            "format": "{#33}{1~-27}"
         },
         {
-            "key": "│ {#31}󰢮 gpu     {#keys}│",
             "type": "gpu",
-            "format": "{2}"
+            "key": "│ {#31}󰢮 GPU     {#keys}│{$3}│{$2}",
+            "format": "{#31}{2}"
         },
         {
-            "key": "│ {#34}󰉉 disk    {#keys}│",
+            "type": "memory",
+            "key": "│ {#35} RAM     {#keys}│{$3}│{$2}",
+            "format": "{#35}{1} / {2} ({#35}{3}{#35})"
+        },
+        {
             "type": "disk",
-            "folders": "/"
+            "folders": "/",
+            "key": "│ {#34}󰉉 SSD     {#keys}│{$3}│{$2}",
+            "format": "{#34}{1} / {2} ({#34}{3}{#34})"
         },
         {
-            "key": "│ {#35} memory  {#keys}│",
-            "type": "memory"
-        },
-        {
-            "key": "│ {#36}󰩟 network {#keys}│",
-            "type": "localip",
-            "format": "{ipv4} ({ifname})"
-        },
-        {
-            "key": "├───────────┤",
-            "type": "custom"
-        },
-        {
-            "key": "│ {#39} colors  {#keys}│",
-            "type": "colors",
-            "symbol": "circle"
-        },
-        {
-            "key": "╰───────────╯",
-            "type": "custom"
+            "type": "custom",
+            "key": "╰───────────┴{$1}╯",
+            "format": ""
         }
     ]
 }

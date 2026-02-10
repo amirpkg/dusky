@@ -1,17 +1,17 @@
 [Default Applications]
-x-scheme-handler/http=firefox.desktop
-x-scheme-handler/https=firefox.desktop
+x-scheme-handler/http=google-chrome.desktop
+x-scheme-handler/https=google-chrome.desktop
 x-scheme-handler/chrome=firefox.desktop
-x-scheme-handler/about=firefox.desktop
-x-scheme-handler/unknown=firefox.desktop
-text/html=firefox.desktop
+x-scheme-handler/about=google-chrome.desktop
+x-scheme-handler/unknown=google-chrome.desktop
+text/html=google-chrome.desktop
 application/x-extension-htm=firefox.desktop
 application/x-extension-html=firefox.desktop
 application/x-extension-shtml=firefox.desktop
 application/xhtml+xml=firefox.desktop
 application/x-extension-xhtml=firefox.desktop
 application/x-extension-xht=firefox.desktop
-text/plain=nvim.desktop
+text/plain=code.desktop
 text/markdown=nvim.desktop
 application/json=nvim.desktop
 application/x-shellscript=nvim.desktop
@@ -44,13 +44,14 @@ audio/mpeg=mpv.desktop
 audio/ogg=mpv.desktop
 audio/wav=mpv.desktop
 application/pdf=org.pwmt.zathura.desktop
-inode/directory=yazi.desktop
+inode/directory=thunar.desktop
 application/x-zerosize=nvim.desktop
 x-scheme-handler/discord=vesktop.desktop
 
 [Added Associations]
 video/mp4=mpv.desktop;vlc.desktop;fr.handbrake.ghb.desktop;
 video/x-matroska=mpv.desktop;vlc.desktop;
-text/plain=nvim.desktop;org.gnome.TextEditor.desktop;
+text/plain=nvim.desktop;org.gnome.TextEditor.desktop;code.desktop;
 application/json=nvim.desktop;org.gnome.TextEditor.desktop;
 application/x-zerosize=nvim.desktop;
+application/x-shellscript=code.desktop;
