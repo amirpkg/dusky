@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # -----------------------------------------------------------------------------
-# Dusky TUI Engine - Hybrid Master v3.5.2 (Precision & Safety + Config Fix)
+# Dusky TUI Engine - Hybrid Master v3.5.3 (Menu UX Fix)
 # -----------------------------------------------------------------------------
 # Target: Arch Linux / Hyprland / UWSM / Wayland
 #
-# v3.5.2 CHANGELOG:
-#   - FIX:  Corrected Submenu registration to match parsing logic.
-#           (Changed 'input:touchpad' -> 'touchpad' and fixed key names).
+# v3.5.3 CHANGELOG:
+#   - UX:   Improved Submenu visualization to explicitly indicate drill-down
+#           capability (Changed '► ENTER' -> '[+] Open Menu ...').
 # -----------------------------------------------------------------------------
 
 set -euo pipefail
@@ -18,7 +18,7 @@ set -euo pipefail
 # POINT THIS TO YOUR REAL CONFIG FILE
 readonly CONFIG_FILE="${HOME}/.config/hypr/change_me.conf"
 readonly APP_TITLE="Input Config Editor"
-readonly APP_VERSION="v3.5.2 (Fixed)"
+readonly APP_VERSION="v3.5.3 (UX Fix)"
 
 # Dimensions & Layout
 declare -ri MAX_DISPLAY_ROWS=14
@@ -545,7 +545,7 @@ draw_main_view() {
         IFS='|' read -r _ type _ _ _ _ <<< "$config"
 
         case "$type" in
-            menu) display="${C_YELLOW}► ENTER${C_RESET}" ;;
+            menu) display="${C_YELLOW}[+] Open Menu ...${C_RESET}" ;;
             *)
                 case "$val" in
                     true)              display="${C_GREEN}ON${C_RESET}" ;;
